@@ -635,14 +635,14 @@
 
       const WEEKDAY_NAMES = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
       const TIME_SLOTS = [
-        { label: '8-9', startHour: 8, endHour: 9 },
-        { label: '9-10', startHour: 9, endHour: 10 },
-        { label: '10-11', startHour: 10, endHour: 11 },
-        { label: '11-12', startHour: 11, endHour: 12 },
-        { label: '16-17', startHour: 16, endHour: 17 },
-        { label: '17-18', startHour: 17, endHour: 18 },
-        { label: '18-19', startHour: 18, endHour: 19 },
-        { label: '19-20', startHour: 19, endHour: 20 }
+        { label: '08:00-09:00', startHour: 8, endHour: 9 },
+        { label: '09:00-10:00', startHour: 9, endHour: 10 },
+        { label: '10:00-11:00', startHour: 10, endHour: 11 },
+        { label: '11:00-12:00', startHour: 11, endHour: 12 },
+        { label: '16:00-17:00', startHour: 16, endHour: 17 },
+        { label: '17:00-18:00', startHour: 17, endHour: 18 },
+        { label: '18:00-19:00', startHour: 18, endHour: 19 },
+        { label: '19:00-20:00', startHour: 19, endHour: 20 }
       ];
 
       let config = loadConfig();
@@ -871,6 +871,24 @@
         const end = new Date(y, m - 1, d, endHour, 0, 0, 0);
         return { start, end };
       }
+
+      function isSlotBusy(isoDate, slot) {
+        if (!isoDate || !Array.isArray(busyIntervals) || busyIntervals.length === 0) {
+          return false;
+        }
+        const { start, end } = buildSlotRangeISO(isoDate, slot.startHour, slot.endHour);
+        const slotStartMs = start.getTime();
+        const slotEndMs = end.getTime();
+
+        return busyIntervals.some((ev) => {
+          if (!ev || !ev.start || !ev.end) return false;
+          const evStartMs = new Date(ev.start).getTime();
+          const evEndMs = new Date(ev.end).getTime();
+          if (Number.isNaN(evStartMs) || Number.isNaN(evEndMs)) return false;
+          return slotStartMs < evEndMs && slotEndMs > evStartMs;
+        });
+      }
+
       // Render 14-day almanac strictly aligned DOM..SÁB across 2 calendar weeks (7+7)
       function renderAlmanac() {
         const today = getTodayDate();
@@ -942,28 +960,30 @@
         renderWeekRow(week2Days);
       }
 
-      // Render time slots (8-9 to 11-12 and 16-17 to 19-20)
+      // Render time slots (08:00-09:00 to 11:00-12:00 and 16:00-17:00 to 19:00-20:00)
       function renderTimeSlots() {
-        els.selectedDateSubtitle.textContent = selectedDateISO
-          ? `Día elegido: ${formatHumanDate(selectedDateISO)} (${selectedDateISO})`
-          : 'Seleccioná un día';
+        const activeDate = selectedDateISO || toISODate(getTodayDate());
+        selectedDateISO = activeDate;
 
+        els.selectedDateSubtitle.textContent = `Día elegido: ${formatHumanDate(activeDate)} (${activeDate})`;
         els.slotsGrid.innerHTML = '';
-        let firstFree = '';
+
+        const currentSelectedValid = TIME_SLOTS.some(
+          (s) => s.label === selectedSlotLabel && !isSlotBusy(activeDate, s)
+        );
+        if (!currentSelectedValid) {
+          const firstFree = TIME_SLOTS.find((s) => !isSlotBusy(activeDate, s));
+          selectedSlotLabel = firstFree ? firstFree.label : '';
+        }
 
         TIME_SLOTS.forEach((slot) => {
-          const busy = isSlotBusy(selectedDateISO, slot);
-          if (!busy && !firstFree) {
-            firstFree = slot.label;
-          }
-          if (selectedSlotLabel === slot.label && busy) {
-            selectedSlotLabel = '';
-          }
+          const busy = isSlotBusy(activeDate, slot);
+          const isSelected = !busy && selectedSlotLabel === slot.label;
 
-          const isSelected = selectedSlotLabel === slot.label && !busy;
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.disabled = busy;
+          btn.setAttribute('aria-pressed', String(isSelected));
 
           if (busy) {
             btn.className = 'min-h-[46px] cursor-not-allowed rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs font-semibold text-slate-500 line-through';
@@ -985,11 +1005,6 @@
 
           els.slotsGrid.appendChild(btn);
         });
-
-        if (!selectedSlotLabel && firstFree) {
-          selectedSlotLabel = firstFree;
-          renderTimeSlots();
-        }
       }
 
       // Background sync with Google Apps Script (busy slots + remote config)
